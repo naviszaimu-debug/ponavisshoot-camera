@@ -340,6 +340,45 @@
     position: relative;
     z-index: 1;
   }
+  /* 2026-09-29追加(祥希さんのモックアップに基づく改修): 附属証憑/附属明細を持つ種別を、
+     親タイル+右側に附属証憑/附属明細の小タイル2つ、という1つの横並びグループとして表示する。
+     .kind-picker-tilesは2列グリッドのため、グループ行自体は1/-1で両列にまたがせて横長にする。 */
+  .kind-group-row {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .kind-group-main {
+    flex: 1.3;
+    min-width: 0;
+  }
+  .kind-group-side {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .kind-tile-small-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+  }
+  .kind-tile.kind-tile-small {
+    flex: 1;
+    padding: 8px 6px;
+    font-size: 0.8rem;
+    min-height: 0;
+  }
+  .kind-tile.kind-tile-small-inactive {
+    background: #eceff1;
+    color: #9aa0a6;
+    border-color: #d5d9dd;
+    cursor: default;
+  }
   /* 2026-09-09削除: .current-kind-bar(旧「選択中: X > Y」バー)は既に使われておらず
      (btn-kind-select→今回さらに廃止、の前段階の遺物)、HTML側にも対応要素が無かったため削除。 */
   /* 2026-09-07追加(画面刷新): ロゴの下に常時表示する「戻る/メニュー」行。
@@ -874,19 +913,79 @@ function renderKindHome() {
   // 専用画面(#sentListScreen)でのみ表示する(情報量を減らすため)。
 }
 
+// 2026-09-29改修(祥希さんのモックアップ画像に基づく表示改修): 附属証憑/附属明細の合成kind行が
+// 親kindと見分けの付かない同列タイルとして並んでしまい、現金出納簿で「レシート・領収証(付属資料)」が
+// 二重に見えたり、預金口座(複数通帳)でどれがどの通帳の附属資料か分からなくなっていた不具合の対策。
+// getKindsForCustomer側で追加したparentKindName/attachmentTypeを使い、親kind1件+その附属証憑/
+// 附属明細タイル(最大2件、無い方は押せない灰色タイルとして常時表示)を1つの横並びグループ
+// として描画する(「アクションで表示が変わる設計はやめる」原則に合わせ、片方だけ設定されて
+// いる場合も両方の枠自体は常に出す)。附属資料が無い通常のkindは従来通り単独タイル。
 function renderKindSubList(major, list) {
   hideAllScreens();
   kindPickerCard.style.display = '';
   kindPickerTitle.textContent = majorLabel(major);
   kindPickerTiles.innerHTML = '';
   headerBackBtn.style.display = ''; // サブ一覧はホームより1段深いので戻るボタンを出す
-  list.forEach(k => {
-    const tile = document.createElement('button');
-    tile.type = 'button';
-    tile.className = 'kind-tile';
-    tile.textContent = k.displayName;
-    tile.addEventListener('click', () => selectKind(k));
-    kindPickerTiles.appendChild(tile);
+
+  const parents = list.filter(k => !k.parentKindName);
+  const childrenByParent = {};
+  list.filter(k => k.parentKindName).forEach(k => {
+    (childrenByParent[k.parentKindName] = childrenByParent[k.parentKindName] || []).push(k);
+  });
+
+  // 2026-09-29訂正: 「※非アクティブ」の注記はモックアップ上のClaudeへの説明書き(実際の
+  // 画面文言ではない)だったと祥希さんに指摘され削除。灰色+押せない状態だけで十分という判断。
+  const buildAttachmentSlot = (child, defaultLabel) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'kind-tile-small-wrap';
+    if (child) {
+      const t = document.createElement('button');
+      t.type = 'button';
+      t.className = 'kind-tile kind-tile-small';
+      t.textContent = child.displayName;
+      t.addEventListener('click', () => selectKind(child));
+      wrap.appendChild(t);
+    } else {
+      const t = document.createElement('div');
+      t.className = 'kind-tile kind-tile-small kind-tile-small-inactive';
+      t.textContent = defaultLabel;
+      wrap.appendChild(t);
+    }
+    return wrap;
+  };
+
+  parents.forEach(parent => {
+    const children = childrenByParent[parent.name] || [];
+    if (children.length === 0) {
+      // 附属資料が設定されていない種別は今まで通り単独タイル
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'kind-tile';
+      tile.textContent = parent.displayName;
+      tile.addEventListener('click', () => selectKind(parent));
+      kindPickerTiles.appendChild(tile);
+      return;
+    }
+    const shoko = children.find(c => c.attachmentType === '証憑') || null;
+    const meisai = children.find(c => c.attachmentType === '明細') || null;
+
+    const row = document.createElement('div');
+    row.className = 'kind-group-row';
+
+    const mainTile = document.createElement('button');
+    mainTile.type = 'button';
+    mainTile.className = 'kind-tile kind-group-main';
+    mainTile.textContent = parent.displayName;
+    mainTile.addEventListener('click', () => selectKind(parent));
+    row.appendChild(mainTile);
+
+    const side = document.createElement('div');
+    side.className = 'kind-group-side';
+    side.appendChild(buildAttachmentSlot(shoko, '附属証憑'));
+    side.appendChild(buildAttachmentSlot(meisai, '附属明細'));
+    row.appendChild(side);
+
+    kindPickerTiles.appendChild(row);
   });
 }
 
