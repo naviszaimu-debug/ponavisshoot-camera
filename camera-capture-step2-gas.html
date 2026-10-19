@@ -430,6 +430,58 @@
     margin-left: 4px;
   }
   .menu-badge.show { display: inline; }
+  /* 2026-10-19追加(工藤蓮担当顧客のフィードバック要望1・2): 撮影直後の操作(撮り直す/次の頁/
+     保存/次の撮影)を画面下部に固定表示する。スマホ標準のカメラアプリで保存を押す位置(右下)から
+     指を動かさずに押せるようにするため。「アクションで表示が変わる設計はやめる」原則に合わせ、
+     カメラ画面にいる間は常に表示し、撮影前は前3つを押せない状態(disabled)にしておく。
+     右下の「次の撮影」は保存して確定したうえで、そのままカメラを再起動する(連続撮影用)。 */
+  .capture-bar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 900;
+    max-width: 480px;
+    margin: 0 auto;
+    box-sizing: border-box;
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: #fff;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.18);
+  }
+  .capture-bar button {
+    flex: 1;
+    min-width: 0; /* 汎用buttonルールのmin-width:100pxだと4ボタンが横に収まらない */
+    padding: 16px 2px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .capture-bar #btnNextShoot { flex: 1.5; background: #d93025; }
+  .capture-bar #btnNextShoot:disabled { background: #aaa; }
+  .capture-bar-spacer { height: 84px; } /* 固定バーに下端のコンテンツが隠れないための余白 */
+  /* 撮影したばかりの1枚のプレビュー(要望1改善案: 保存時にサムネ表示)。常に同じ大きさの枠を
+     出しておき、中身だけが切り替わる。タップで拡大。 */
+  .shot-preview {
+    margin-top: 12px;
+    height: 55vh; /* 撮影直後はこのプレビューと下部バーだけの画面になるため大きく出す */
+    border-radius: 8px;
+    background: #eceff1;
+    color: #8a9399;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    overflow: hidden;
+  }
+  .shot-preview img { width: 100%; height: 100%; object-fit: contain; background: #000; cursor: pointer; }
+  /* 2026-10-19追加(要望3): パスワード入力画面・パスワード設定画面 */
+  .pw-field { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 12px; font-size: 1rem; border: 1px solid #bbb; border-radius: 8px; }
+  .pw-field:disabled { background: #eee; color: #999; }
+  .pw-label { display: block; margin-top: 12px; font-size: 0.85rem; font-weight: 600; }
+  .pw-remember { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 0.85rem; }
+  .pw-remember input { width: 18px; height: 18px; }
+  .pw-error { min-height: 1.3em; margin-top: 10px; font-size: 0.85rem; color: #d93025; }
+  .pw-error.ok { color: #1e8e3e; }
 </style>
 </head>
 <body>
@@ -503,12 +555,8 @@
     <div class="row" id="captureMainRow3">
       <button id="btnSend" disabled>NAVISに送信<span id="sendBadge" class="menu-badge">⚠️</span></button>
     </div>
-    <!-- 2026-09-09新設: 撮影直後だけ表示する3択(撮り直す/次の頁/保存)。 -->
-    <div class="row" id="captureDecisionRow" style="display:none;">
-      <button id="btnRetakeShot" type="button" class="secondary">撮り直す</button>
-      <button id="btnNextPage" type="button" class="btn-next-page">次の頁</button>
-      <button id="btnSaveShot" type="button" class="btn-save-shot">保存</button>
-    </div>
+    <!-- 2026-10-19新設(要望1改善案): 撮影した1枚のプレビュー。枠は常時表示で中身だけ切り替わる。 -->
+    <div class="shot-preview" id="shotPreview" style="display:none;"></div>
   </div>
 
   <div class="card" id="captureCardFilePicker">
@@ -519,6 +567,17 @@
       <button id="btnSend2" disabled>NAVISに送信<span id="sendBadge2" class="menu-badge">⚠️</span></button>
     </div>
   </div>
+
+  <div class="capture-bar-spacer" id="captureBarSpacer" style="display:none;"></div>
+  <!-- 2026-10-19変更(要望1・2): 旧captureDecisionRow(カード上部に撮影直後だけ出る3択)を、
+       画面下部固定の常時表示バーに移した。#cameraCardの中にあるため、カメラ画面以外では
+       cameraCardごと非表示になりバーも出ない。撮影前は撮り直す/次の頁/保存がdisabled。 -->
+  <div class="capture-bar" id="captureDecisionRow" style="display:none;">
+    <button id="btnRetakeShot" type="button" class="secondary">撮り直す</button>
+    <button id="btnNextPage" type="button" class="btn-next-page">次の頁</button>
+    <button id="btnSaveShot" type="button" class="btn-save-shot">保存</button>
+    <button id="btnNextShoot" type="button">次の撮影</button>
+  </div>
 </div>
 
 <!-- 2026-09-07新設(画面刷新): メニュー画面。未送信一覧・送信済み一覧はここからの画面遷移で見る
@@ -528,6 +587,31 @@
   <!-- 2026-09-09追加(祥希さんの指摘: メニューの警告マークが良かったので、こちらにも表示) -->
   <button id="menuOpenUnsentBtn" type="button" class="menu-link-btn">未送信一覧を見る<span id="unsentMenuBadge" class="menu-badge">⚠️</span></button>
   <button id="menuOpenSentBtn" type="button" class="menu-link-btn">送信済み一覧を見る</button>
+  <button id="menuOpenPasswordBtn" type="button" class="menu-link-btn">パスワード設定</button>
+</div>
+
+<!-- 2026-10-19新設(要望3): パスワード入力画面。パスワード設定済みの顧客は、URLを開くとまずここが出る。 -->
+<div class="card" id="passwordScreen" style="display:none;">
+  <h2 class="card-title">パスワードを入力してください</h2>
+  <input id="pwInput" class="pw-field" type="password" autocomplete="current-password" placeholder="パスワード">
+  <label class="pw-remember"><input id="pwRemember" type="checkbox" checked>このスマホでは次回から入力を省略する</label>
+  <div id="pwError" class="pw-error"></div>
+  <div class="row"><button id="pwSubmitBtn" type="button">開く</button></div>
+</div>
+
+<!-- 2026-10-19新設(要望3): パスワード設定・変更画面(メニューから開く)。項目は設定前/後で増減させず
+     常に4つ出し、未設定の間だけ「現在のパスワード」欄が押せない状態になる。 -->
+<div class="card" id="passwordSettingScreen" style="display:none;">
+  <h2 class="card-title">パスワード設定</h2>
+  <p id="pwSettingState" class="note" style="margin:0;"></p>
+  <label class="pw-label" for="pwOld">現在のパスワード</label>
+  <input id="pwOld" class="pw-field" type="password" autocomplete="current-password" style="margin-top:4px;">
+  <label class="pw-label" for="pwNew">新しいパスワード(4文字以上)</label>
+  <input id="pwNew" class="pw-field" type="password" autocomplete="new-password" style="margin-top:4px;">
+  <label class="pw-label" for="pwNew2">新しいパスワード(確認のためもう一度)</label>
+  <input id="pwNew2" class="pw-field" type="password" autocomplete="new-password" style="margin-top:4px;">
+  <div id="pwSettingMsg" class="pw-error"></div>
+  <div class="row"><button id="pwSaveBtn" type="button">設定する</button></div>
 </div>
 
 <div class="card" id="unsentListScreen" style="display:none;">
@@ -602,6 +686,22 @@ const captureDecisionRow = document.getElementById('captureDecisionRow');
 const btnRetakeShot = document.getElementById('btnRetakeShot');
 const btnNextPage = document.getElementById('btnNextPage');
 const btnSaveShot = document.getElementById('btnSaveShot');
+const btnNextShoot = document.getElementById('btnNextShoot'); // 2026-10-19追加(要望2)
+const shotPreview = document.getElementById('shotPreview');   // 2026-10-19追加(要望1)
+// 2026-10-19追加(要望3): パスワード入力・設定画面
+const passwordScreen = document.getElementById('passwordScreen');
+const pwInput = document.getElementById('pwInput');
+const pwRemember = document.getElementById('pwRemember');
+const pwError = document.getElementById('pwError');
+const pwSubmitBtn = document.getElementById('pwSubmitBtn');
+const passwordSettingScreen = document.getElementById('passwordSettingScreen');
+const pwSettingState = document.getElementById('pwSettingState');
+const pwOld = document.getElementById('pwOld');
+const pwNew = document.getElementById('pwNew');
+const pwNew2 = document.getElementById('pwNew2');
+const pwSettingMsg = document.getElementById('pwSettingMsg');
+const pwSaveBtn = document.getElementById('pwSaveBtn');
+const menuOpenPasswordBtn = document.getElementById('menuOpenPasswordBtn');
 
 const filePicker = document.getElementById('filePicker');
 
@@ -726,6 +826,13 @@ function circledNumber(n) {
 
 const TOKEN = new URLSearchParams(window.location.search).get('token');
 
+// 2026-10-19追加(要望3): パスワード関連の状態(詳細はloadCustomerInfo付近のコメント参照)
+const PW_STORAGE_KEY = 'pns_pw_' + (TOKEN || '');
+let currentPassword = '';   // 現在使っているパスワード(未設定の顧客は空)
+let passwordSet = false;    // 顧客側でパスワードが設定済みか(doPostのinfoの戻り値)
+let locked = false;         // パスワード入力待ちの間はtrue(ホームへ戻る等の画面遷移を止める)
+try { currentPassword = localStorage.getItem(PW_STORAGE_KEY) || ''; } catch (e) { /* 非対応環境では毎回入力 */ }
+
 function setStatus(msg, type) {
   statusEl.textContent = msg;
   statusEl.className = type || '';
@@ -748,11 +855,62 @@ function displayCustomerName(name) {
   return String(name || '').replace(/^t?\d+_/, '');
 }
 
+// 2026-10-19追加(要望3): パスワード。端末に保存した値(「次回から入力を省略する」にチェックした場合のみ)
+// をトークンごとに覚え、URLを開くたびの入力を省く。サーバー側(GAS)が毎回照合するため、
+// 保存値が古くなった(担当者がリセットした等)場合は自動的に入力画面に戻る。
+// (currentPassword等の宣言はloadCustomerInfo()の初回呼び出しより前に置く必要があり、TOKEN宣言の直後にある)
+
+function rememberPassword(pw, remember) {
+  try {
+    if (remember) localStorage.setItem(PW_STORAGE_KEY, pw);
+    else localStorage.removeItem(PW_STORAGE_KEY);
+  } catch (e) { /* 保存できなくても動作には影響しない */ }
+}
+
+// パスワード入力画面を出す(info・送信・削除でneedPasswordが返った時に共通で呼ぶ)
+function showPasswordScreen(message) {
+  locked = true;
+  hideAllScreens();
+  passwordScreen.style.display = '';
+  headerBackBtn.style.display = 'none';
+  headerMenuBtn.style.display = 'none';
+  pwError.textContent = message || '';
+  pwInput.value = '';
+  pwSubmitBtn.disabled = false;
+  pwInput.focus();
+}
+
+async function submitPassword() {
+  const pw = pwInput.value;
+  if (!pw) { pwError.textContent = 'パスワードを入力してください'; return; }
+  pwSubmitBtn.disabled = true;
+  currentPassword = pw;
+  pwError.textContent = '確認中…';
+  await loadCustomerInfo(); // 一致すればここで通常の画面に進む。不一致ならshowPasswordScreenに戻る
+  if (!locked) rememberPassword(pw, pwRemember.checked);
+}
+
 async function loadCustomerInfo() {
   try {
-    const res = await fetch(GAS_URL + '?token=' + encodeURIComponent(TOKEN));
+    // 2026-10-19変更: パスワードをURLに載せないため、GETではなくPOST(action:'info')で取得する
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'info', token: TOKEN, password: currentPassword })
+    });
     const data = await res.json();
+    if (data.needPassword) {
+      const wasTried = !!currentPassword; // 何か入力済みで弾かれた=不一致(または担当者のリセット)
+      if (wasTried) rememberPassword('', false);
+      currentPassword = '';
+      showPasswordScreen(wasTried ? data.error : '');
+      return;
+    }
     if (data.ok) {
+      locked = false;
+      passwordScreen.style.display = 'none';
+      headerMenuBtn.style.display = '';
+      passwordSet = !!data.passwordSet;
       greetingEl.textContent = data.name ? (displayCustomerName(data.name) + ' 様') : '';
       if (data.message) {
         messageBoxEl.textContent = data.message;
@@ -777,10 +935,19 @@ async function loadCustomerInfo() {
       } else {
         renderKindHome();
       }
+    } else if (locked) {
+      // 2026-10-19追加: パスワード入力中に別のエラー(無効なトークン等)が返った場合
+      pwError.textContent = data.error || 'エラーが発生しました';
+      pwSubmitBtn.disabled = false;
     } else {
       showCardsFallback();
     }
   } catch (e) {
+    if (locked) {
+      pwError.textContent = '通信に失敗しました。もう一度お試しください';
+      pwSubmitBtn.disabled = false;
+      return;
+    }
     // 案内文・種別一覧の取得に失敗しても、撮影・送信機能は使えるようにしておく
     showCardsFallback();
   }
@@ -796,6 +963,8 @@ function hideAllScreens() {
   menuScreen.style.display = 'none';
   unsentListScreen.style.display = 'none';
   sentListScreen.style.display = 'none';
+  passwordScreen.style.display = 'none';          // 2026-10-19追加
+  passwordSettingScreen.style.display = 'none';   // 2026-10-19追加
 }
 
 // 2026-08-27追加: doGetの取得に失敗した場合のフォールバック。種別分岐の判定ができないため、
@@ -861,6 +1030,7 @@ function groupKindsByMajor(kinds) {
 }
 
 function renderKindHome() {
+  if (locked) return; // 2026-10-19追加: パスワード入力待ちの間はロゴタップ等でホームへ進ませない
   selectedKind = null;
   // 2026-08-27追加: タイル選択に戻る時はカメラを解放しておく(stopCameraManuallyだと
   // 未起動時にも「カメラを停止しました」と出てしまうため、必要な後始末だけ行う)
@@ -1044,8 +1214,68 @@ function openSentList() {
   const sorted = lastPendingFiles.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   renderPendingFiles(sorted);
 }
+// 2026-10-19追加(要望3): メニューから開くパスワード設定・変更画面。設定済みかどうかで
+// 「現在のパスワード」欄を押せるかどうかと、案内文・ボタン文言だけが変わる(項目数は変えない)。
+function openPasswordSetting() {
+  hideAllScreens();
+  passwordSettingScreen.style.display = '';
+  pwOld.value = ''; pwNew.value = ''; pwNew2.value = '';
+  pwSettingMsg.textContent = '';
+  pwSettingMsg.className = 'pw-error';
+  refreshPasswordSettingState();
+}
+function refreshPasswordSettingState() {
+  pwOld.disabled = !passwordSet;
+  pwOld.placeholder = passwordSet ? '' : '(未設定のため入力不要)';
+  pwSettingState.textContent = passwordSet
+    ? '現在: パスワード設定済み。変更するには現在のパスワードと新しいパスワードを入力してください。'
+    : '現在: 未設定(URLを知っている人は誰でも開けます)。新しいパスワードを2回入力して設定してください。';
+  pwSaveBtn.textContent = passwordSet ? '変更する' : '設定する';
+}
+
+async function savePassword() {
+  const oldPw = pwOld.value, newPw = pwNew.value, newPw2 = pwNew2.value;
+  const fail = (msg) => { pwSettingMsg.className = 'pw-error'; pwSettingMsg.textContent = msg; };
+  if (passwordSet && !oldPw) { fail('現在のパスワードを入力してください'); return; }
+  if (newPw.length < 4) { fail('新しいパスワードは4文字以上にしてください'); return; }
+  if (newPw !== newPw2) { fail('新しいパスワードが一致しません。もう一度入力してください'); return; }
+  pwSaveBtn.disabled = true;
+  pwSettingMsg.className = 'pw-error';
+  pwSettingMsg.textContent = '保存中…';
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'setPassword', token: TOKEN, password: passwordSet ? oldPw : currentPassword, newPassword: newPw })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '不明なエラー');
+    // 設定した本人の端末なので、新しい値を端末にも覚えさせる(この端末で次に開く時の入力を省く)
+    currentPassword = newPw;
+    passwordSet = true;
+    rememberPassword(newPw, true);
+    pwOld.value = ''; pwNew.value = ''; pwNew2.value = '';
+    refreshPasswordSettingState();
+    pwSettingMsg.className = 'pw-error ok';
+    pwSettingMsg.textContent = 'パスワードを保存しました。次回からURLを開くとパスワードの入力が必要です。';
+  } catch (e) {
+    fail('保存に失敗しました: ' + e.message);
+  } finally {
+    pwSaveBtn.disabled = false;
+  }
+}
+
+// 送信・削除でneedPasswordが返ってきた場合(担当者がパスワードをリセットした等)の共通処理
+function handleNeedPasswordResponse(data) {
+  rememberPassword('', false);
+  currentPassword = '';
+  showPasswordScreen(data.error || 'パスワードを入力してください');
+}
+
 function handleHeaderBack() {
-  if (unsentListScreen.style.display !== 'none' || sentListScreen.style.display !== 'none') {
+  if (passwordSettingScreen.style.display !== 'none') {
+    showMenuFromSub();
+  } else if (unsentListScreen.style.display !== 'none' || sentListScreen.style.display !== 'none') {
     showMenuFromSub();
   } else if (menuScreen.style.display !== 'none') {
     closeMenu();
@@ -1073,9 +1303,10 @@ async function deletePendingFile(fileId, wrapEl) {
     const res = await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'delete', token: TOKEN, fileId })
+      body: JSON.stringify({ action: 'delete', token: TOKEN, password: currentPassword, fileId })
     });
     const data = await res.json();
+    if (data.needPassword) { handleNeedPasswordResponse(data); return; } // 2026-10-19追加
     if (!data.ok) throw new Error(data.error || '不明なエラー');
     wrapEl.remove();
     pendingEmptyEl.style.display = pendingFilesEl.children.length === 0 ? 'block' : 'none';
@@ -1118,9 +1349,24 @@ function stopCameraManually() {
 // 2026-08-31(続き)変更(祥希さんの指摘: 標準カメラアプリ自体に前後切替が付いているので不要):
 // capture属性の動的切替(facingMode)は廃止し、HTML側の固定値("environment"、証憑撮影は
 // 背面カメラ前提)のままclick()するだけにした。
+// 2026-10-19変更(要望2): 直前の撮影が「撮り直す/次の頁/保存」の決定待ちのままでも、この関数は
+// 「保存」と同じ扱いで確定(activeGroupId/lastShotItemIdをクリア)してから新しく撮影を始める。
+// 画面下部の「次の撮影」ボタンもこれを呼ぶ(連続して次の証憑を撮るための右下ボタン)。
+// 決定待ちのまま確定せずに新しい1枚を撮ると、進行中のグループ(activeGroupId)が残って
+// 次の「次の頁」が前の証憑に紛れ込むため、必ずここで確定させる。
 function shoot() {
-  pendingAction = null; // 通常の新規撮影(グループ外の1枚目)
+  commitCurrentShot();
   cameraFileInput.click();
+}
+
+// 確定処理(「保存」と「次の撮影」の共通部分)。決定待ちの状態を解除する。
+function commitCurrentShot() {
+  activeGroupId = null;
+  lastShotItemId = null;
+  pendingAction = null; // 通常の新規撮影(グループ外の1枚目)
+  showCaptureMainRow();
+  renderQueue(); // lastShotItemIdをクリアした後でNAVISに送信ボタンを再評価する
+  updateBurstBadge();
 }
 
 // 2026-09-09追加: 撮影直後の3択のうち「撮り直す」。直前の1枚を、新しく撮った1枚と
@@ -1148,38 +1394,56 @@ function nextPageShot() {
 
 // 2026-09-09追加: 撮影直後の3択のうち「保存」。ここまでの撮影(1枚、または次の頁でまとめた
 // 複数ページ)を確定し、通常の画面(撮影/スマホ内選択/NAVISに送信)に戻る。
+// 2026-10-19変更(要望1・2): 確定のみ(画面は切り替わらない)。プレビューは確定後も残り、直前に
+// 撮った1枚が何だったかを確認できる。
 function saveShot() {
-  activeGroupId = null;
-  lastShotItemId = null;
-  pendingAction = null;
-  showCaptureMainRow();
-  renderQueue(); // 2026-09-09修正: lastShotItemIdをクリアした後でNAVISに送信ボタンを再評価する
-  updateBurstBadge();
+  commitCurrentShot();
 }
 
+// 2026-10-19変更(要望1・2): 旧実装は撮影直後だけ決定行を表示し、撮影ボタン・スマホ内選択カードを
+// 隠していたが、下部固定バーは常時表示にしたため、ここでは3つのボタンの有効/無効を切り替えるだけ
+// にした(撮影ボタン・スマホ内選択カードは隠さない)。
+// 2026-10-19再変更(祥希さん指示「撮影保存後はサムネイルと下部の4選択のみ表示」): 常時表示+
+// disabled方式をやめ、撮影直後は「サムネイル+下部の4ボタン」だけを表示し、撮影ボタン・NAVISに送信・
+// スマホ内選択は隠す。保存/次の撮影で確定すると通常画面に戻る。
 function showCaptureDecisionRow() {
   captureMainRow.style.display = 'none';
   captureMainRow3.style.display = 'none';
-  // 2026-09-09変更(白枠分割に伴い): スマホ内選択のカード自体を丸ごと隠す(中身が空の
-  // 白い箱が残らないようにするため。カード内のrowを個別に隠す処理は不要になった)。
   captureCardFilePicker.style.display = 'none';
+  shotPreview.style.display = 'flex';
   captureDecisionRow.style.display = 'flex';
+  document.getElementById('captureBarSpacer').style.display = '';
 }
 
 function showCaptureMainRow() {
-  captureDecisionRow.style.display = 'none';
   captureMainRow.style.display = '';
   captureMainRow3.style.display = '';
   captureCardFilePicker.style.display = '';
+  shotPreview.style.display = 'none';
+  captureDecisionRow.style.display = 'none';
+  document.getElementById('captureBarSpacer').style.display = 'none';
+}
+
+// 撮影したばかりの1枚をプレビュー枠に出す(item=nullで初期表示に戻す)
+function updateShotPreview(item) {
+  shotPreview.innerHTML = '';
+  if (!item) return;
+  const img = document.createElement('img');
+  img.src = item.url;
+  img.alt = '';
+  img.addEventListener('click', () => openImageModal(item.url, ''));
+  shotPreview.appendChild(img);
 }
 
 // 2026-09-09追加: 画面遷移時(ホームに戻る・カメラを離れる等)に撮影直後の3択状態を
-// リセットする(旧endBurstMode相当)。
+// リセットする(旧endBurstMode相当)。2026-10-19追加: プレビューも初期表示に戻す
+// (別の証憑種別の前回の写真が残らないように)。
 function resetCaptureFlow() {
   activeGroupId = null;
   lastShotItemId = null;
   pendingAction = null;
   showCaptureMainRow();
+  updateShotPreview(null);
   updateBurstBadge();
 }
 
@@ -1222,6 +1486,7 @@ function handleCameraFileCapture() {
   renderQueue();
   updateBurstBadge();
   showCaptureDecisionRow();
+  updateShotPreview(capturedQueue.find(it => it.id === lastShotItemId) || null); // 2026-10-19追加
 }
 
 // 2026-09-07追加(画面刷新): 「スマホ内の写真・PDFを送信」もカメラ撮影と同じキュー
@@ -1417,6 +1682,7 @@ async function sendQueue() {
   const results = new Array(total);
   let completedCount = 0;
   showSendingOverlay('送信中… (0/' + total + ')'); // 2026-08-31追加
+  let needPasswordAgain = null; // 2026-10-19追加(要望3): 送信中にパスワード不一致が返った場合のレスポンス
 
   // グループごとの総ページ数、および各アイテムのgroupPage(何ページ目か)を、送信を始める前に
   // すべて確定させておく(2026-08-31追加: 並列送信に変えても、完了順ではなく元の並び順で
@@ -1478,6 +1744,7 @@ async function sendQueue() {
           filename,
           mimeType,
           token: TOKEN,
+          password: currentPassword, // 2026-10-19追加(要望3)
           folderId: selectedKind ? selectedKind.folderId : undefined, // 2026-08-27追加
           groupId: item.groupId,
           groupPage,
@@ -1485,6 +1752,7 @@ async function sendQueue() {
         })
       });
       const data = await res.json();
+      if (data.needPassword) needPasswordAgain = data; // 2026-10-19追加: 送信完了後にまとめて入力画面へ
       if (!data.ok) throw new Error(data.error || '不明なエラー');
       results[i] = true;
     } catch (e) {
@@ -1515,6 +1783,11 @@ async function sendQueue() {
   hideSendingOverlay();
   renderQueue();
 
+  if (needPasswordAgain) {
+    // 担当者がパスワードをリセット・変更した等。未送信の写真は端末に残っているので、入力し直せば再送できる
+    handleNeedPasswordResponse(needPasswordAgain);
+    return;
+  }
   if (successCount === total) {
     setStatus(successCount + '枚すべて送信完了しました。', 'ok');
   } else if (successCount > 0) {
@@ -1534,6 +1807,12 @@ cameraFileInput.addEventListener('change', handleCameraFileCapture); // 2026-08-
 btnRetakeShot.addEventListener('click', retakeShot); // 2026-09-09追加
 btnNextPage.addEventListener('click', nextPageShot); // 2026-09-09追加
 btnSaveShot.addEventListener('click', saveShot);     // 2026-09-09追加
+btnNextShoot.addEventListener('click', shoot);       // 2026-10-19追加(要望2): 保存して確定+そのまま次の撮影
+// 2026-10-19追加(要望3): パスワード入力・設定
+pwSubmitBtn.addEventListener('click', submitPassword);
+pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPassword(); });
+menuOpenPasswordBtn.addEventListener('click', openPasswordSetting);
+pwSaveBtn.addEventListener('click', savePassword);
 // 2026-09-09追加(祥希さんの指定): 3箇所の「NAVISに送信」ボタンはすべて同じsendQueue()を呼ぶ
 sendButtons.forEach(btn => btn.addEventListener('click', sendQueue));
 
