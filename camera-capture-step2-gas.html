@@ -594,7 +594,6 @@
 <div class="card" id="passwordScreen" style="display:none;">
   <h2 class="card-title">パスワードを入力してください</h2>
   <input id="pwInput" class="pw-field" type="password" autocomplete="current-password" placeholder="パスワード">
-  <label class="pw-remember"><input id="pwRemember" type="checkbox" checked>このスマホでは次回から入力を省略する</label>
   <div id="pwError" class="pw-error"></div>
   <div class="row"><button id="pwSubmitBtn" type="button">開く</button></div>
 </div>
@@ -691,7 +690,6 @@ const shotPreview = document.getElementById('shotPreview');   // 2026-10-19追�
 // 2026-10-19追加(要望3): パスワード入力・設定画面
 const passwordScreen = document.getElementById('passwordScreen');
 const pwInput = document.getElementById('pwInput');
-const pwRemember = document.getElementById('pwRemember');
 const pwError = document.getElementById('pwError');
 const pwSubmitBtn = document.getElementById('pwSubmitBtn');
 const passwordSettingScreen = document.getElementById('passwordSettingScreen');
@@ -831,7 +829,10 @@ const PW_STORAGE_KEY = 'pns_pw_' + (TOKEN || '');
 let currentPassword = '';   // 現在使っているパスワード(未設定の顧客は空)
 let passwordSet = false;    // 顧客側でパスワードが設定済みか(doPostのinfoの戻り値)
 let locked = false;         // パスワード入力待ちの間はtrue(ホームへ戻る等の画面遷移を止める)
-try { currentPassword = localStorage.getItem(PW_STORAGE_KEY) || ''; } catch (e) { /* 非対応環境では毎回入力 */ }
+// 2026-10-19変更(祥希さん指示): パスワードは端末に保存せず、URLを開くたびに毎回入力させる
+// (メモリ上のcurrentPasswordだけで、そのページを開いている間の送信・削除に使う)。
+// 以前の版が端末に保存した値が残っている場合に備え、ここで削除しておく。
+clearSavedPassword();
 
 function setStatus(msg, type) {
   statusEl.textContent = msg;
@@ -855,16 +856,13 @@ function displayCustomerName(name) {
   return String(name || '').replace(/^t?\d+_/, '');
 }
 
-// 2026-10-19追加(要望3): パスワード。端末に保存した値(「次回から入力を省略する」にチェックした場合のみ)
-// をトークンごとに覚え、URLを開くたびの入力を省く。サーバー側(GAS)が毎回照合するため、
-// 保存値が古くなった(担当者がリセットした等)場合は自動的に入力画面に戻る。
+// 2026-10-19追加(要望3): パスワード。2026-10-19変更(祥希さん指示): 端末には保存せず、URLを開くたびに
+// 毎回入力させる。サーバー側(GAS)が送信・削除のたびに照合する(currentPasswordはメモリ上のみ)。
 // (currentPassword等の宣言はloadCustomerInfo()の初回呼び出しより前に置く必要があり、TOKEN宣言の直後にある)
 
-function rememberPassword(pw, remember) {
-  try {
-    if (remember) localStorage.setItem(PW_STORAGE_KEY, pw);
-    else localStorage.removeItem(PW_STORAGE_KEY);
-  } catch (e) { /* 保存できなくても動作には影響しない */ }
+// 以前の版が端末(localStorage)に保存したパスワードを消す
+function clearSavedPassword() {
+  try { localStorage.removeItem(PW_STORAGE_KEY); } catch (e) { /* 消せなくても動作には影響しない */ }
 }
 
 // パスワード入力画面を出す(info・送信・削除でneedPasswordが返った時に共通で呼ぶ)
@@ -887,7 +885,6 @@ async function submitPassword() {
   currentPassword = pw;
   pwError.textContent = '確認中…';
   await loadCustomerInfo(); // 一致すればここで通常の画面に進む。不一致ならshowPasswordScreenに戻る
-  if (!locked) rememberPassword(pw, pwRemember.checked);
 }
 
 async function loadCustomerInfo() {
@@ -901,7 +898,6 @@ async function loadCustomerInfo() {
     const data = await res.json();
     if (data.needPassword) {
       const wasTried = !!currentPassword; // 何か入力済みで弾かれた=不一致(または担当者のリセット)
-      if (wasTried) rememberPassword('', false);
       currentPassword = '';
       showPasswordScreen(wasTried ? data.error : '');
       return;
@@ -1250,10 +1246,9 @@ async function savePassword() {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || '不明なエラー');
-    // 設定した本人の端末なので、新しい値を端末にも覚えさせる(この端末で次に開く時の入力を省く)
+    // このページを開いている間の送信・削除に使うため、メモリ上の値だけ新しくする(端末には保存しない)
     currentPassword = newPw;
     passwordSet = true;
-    rememberPassword(newPw, true);
     pwOld.value = ''; pwNew.value = ''; pwNew2.value = '';
     refreshPasswordSettingState();
     pwSettingMsg.className = 'pw-error ok';
@@ -1267,7 +1262,6 @@ async function savePassword() {
 
 // 送信・削除でneedPasswordが返ってきた場合(担当者がパスワードをリセットした等)の共通処理
 function handleNeedPasswordResponse(data) {
-  rememberPassword('', false);
   currentPassword = '';
   showPasswordScreen(data.error || 'パスワードを入力してください');
 }
